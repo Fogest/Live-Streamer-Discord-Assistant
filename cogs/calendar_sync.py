@@ -1,10 +1,12 @@
-from discord.ext import commands, tasks
 import discord
+from discord.ext import commands, tasks
+import asyncio  # Add this import
 from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from typing import List, Optional
 import pytz
+import json
 
 class CalendarSync(commands.Cog):
     def __init__(self, bot):
@@ -57,21 +59,37 @@ class CalendarSync(commands.Cog):
             
         except Exception as e:
             print(f"Error in daily summary: {e}")
-            
+       
+    async def get_credentials(self):
+        try:
+            with open('token.json', 'r', encoding='utf-8') as token_file:
+                token_data = json.load(token_file)
+                return Credentials.from_authorized_user_info(token_data)
+        except Exception as e:
+            print(f"Error loading credentials: {e}")
+            return None
+        
     async def get_new_events(self) -> List[dict]:
-        creds = Credentials.from_authorized_user_file('token.json')
-        service = build('calendar', 'v3', credentials=creds)
-        
-        events_result = service.events().list(
-            calendarId=self.config.google_calendar_id,
-            timeMin=self.last_sync_time.isoformat(),
-            updatedMin=self.last_sync_time.isoformat(),
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        
-        self.last_sync_time = datetime.now(pytz.UTC)
-        return events_result.get('items', [])
+        try:
+            creds = await self.get_credentials()
+            if not creds:
+                return []
+                
+            service = build('calendar', 'v3', credentials=creds)
+            
+            events_result = service.events().list(
+                calendarId=self.config.google_calendar_id,
+                timeMin=self.last_sync_time.isoformat(),
+                updatedMin=self.last_sync_time.isoformat(),
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            
+            self.last_sync_time = datetime.now(pytz.UTC)
+            return events_result.get('items', [])
+        except Exception as e:
+            print(f"Error getting new events: {e}")
+            return []
         
     async def get_days_events(self) -> List[dict]:
         creds = Credentials.from_authorized_user_file('token.json')
@@ -99,16 +117,18 @@ class CalendarSync(commands.Cog):
         if not channel:
             return
             
+        # Create embed
         embed = discord.Embed(
             title="New Event Created",
             color=discord.Color.green()
         )
         
         start_time = datetime.fromisoformat(event['start'].get('dateTime', event['start'].get('date')))
+        event_url = event.get('htmlLink', '')
         
         embed.add_field(
             name="Event",
-            value=event['summary'],
+            value=f"**[{event['summary']}]({event_url})**",
             inline=False
         )
         embed.add_field(

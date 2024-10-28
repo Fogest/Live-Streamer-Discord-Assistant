@@ -10,7 +10,10 @@ class Settings(commands.Cog):
         self.bot = bot
         self.config = bot.config
         
-    @app_commands.command(name="settings")
+    @app_commands.command(
+        name="settings",
+        description="Configure bot settings (bot owner only)"
+    )
     @app_commands.default_permissions(administrator=True)
     async def settings(self, interaction: discord.Interaction):
         if interaction.user.id != self.bot.owner_id:
@@ -27,7 +30,10 @@ class Settings(commands.Cog):
             ephemeral=True
         )
         
-    @app_commands.command(name="toggle-event-create-notifications")
+    @app_commands.command(
+        name="toggle-events",
+        description="Toggle notifications for new event creation"
+    )
     @app_commands.default_permissions(manage_messages=True)
     async def toggle_event_notifications(self, interaction: discord.Interaction):
         if not interaction.guild:
@@ -58,7 +64,10 @@ class Settings(commands.Cog):
             
         await interaction.response.send_message(message, ephemeral=True)
         
-    @app_commands.command(name="toggle-daily-summaries")
+    @app_commands.command(
+        name="toggle-summary",
+        description="Toggle daily summary notifications"
+    )
     async def toggle_daily_summaries(self, interaction: discord.Interaction):
         if not interaction.guild:
             return
@@ -116,28 +125,64 @@ class EventNotificationSettings(discord.ui.Modal, title="Event Notification Sett
         
         self.channel = discord.ui.TextInput(
             label="Notification Channel ID",
-            placeholder="Enter channel ID",
+            placeholder="Right-click channel → Copy ID",
             default=str(config.event_notification_channel_id) if config.event_notification_channel_id else "",
-            required=True
+            required=True,
+            min_length=17,
+            max_length=20
         )
         self.add_item(self.channel)
         
         self.role = discord.ui.TextInput(
             label="Notification Role ID",
-            placeholder="Enter role ID",
+            placeholder="Right-click role → Copy ID",
             default=str(config.event_notification_role_id) if config.event_notification_role_id else "",
-            required=True
+            required=True,
+            min_length=17,
+            max_length=20
         )
         self.add_item(self.role)
         
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            self.config.event_notification_channel_id = int(self.channel.value)
-            self.config.event_notification_role_id = int(self.role.value)
+            channel_id = int(self.channel.value)
+            role_id = int(self.role.value)
+            
+            # Verify channel exists
+            channel = interaction.guild.get_channel(channel_id)
+            if not channel:
+                await interaction.response.send_message(
+                    "Channel ID not found! Make sure to use the channel's ID.",
+                    ephemeral=True
+                )
+                return
+                
+            # Verify role exists
+            role = interaction.guild.get_role(role_id)
+            if not role:
+                await interaction.response.send_message(
+                    "Role ID not found! Make sure to use the role's ID.",
+                    ephemeral=True
+                )
+                return
+            
+            self.config.event_notification_channel_id = channel_id
+            self.config.event_notification_role_id = role_id
             self.config.save()
-            await interaction.response.send_message("Event notification settings updated!", ephemeral=True)
+            
+            await interaction.response.send_message(
+                f"Event notification settings updated!\n"
+                f"Channel: {channel.mention}\n"
+                f"Role: {role.mention}",
+                ephemeral=True
+            )
         except ValueError:
-            await interaction.response.send_message("Please enter valid channel and role IDs!", ephemeral=True)
+            await interaction.response.send_message(
+                "Please enter valid channel and role IDs! You can get these by:\n"
+                "1. Enable Developer Mode in Discord Settings → App Settings → Advanced\n"
+                "2. Right-click on the channel/role and select 'Copy ID'",
+                ephemeral=True
+            )
 
 class DailySummarySettings(discord.ui.Modal, title="Daily Summary Settings"):
     def __init__(self, config):
@@ -146,49 +191,103 @@ class DailySummarySettings(discord.ui.Modal, title="Daily Summary Settings"):
         
         self.channel = discord.ui.TextInput(
             label="Summary Channel ID",
-            placeholder="Enter channel ID",
+            placeholder="Right-click channel → Copy ID",
             default=str(config.daily_summary_channel_id) if config.daily_summary_channel_id else "",
-            required=True
+            required=True,
+            min_length=17,
+            max_length=20
         )
         self.add_item(self.channel)
         
         self.role = discord.ui.TextInput(
             label="Summary Role ID",
-            placeholder="Enter role ID",
+            placeholder="Right-click role → Copy ID",
             default=str(config.daily_summary_role_id) if config.daily_summary_role_id else "",
-            required=True
+            required=True,
+            min_length=17,
+            max_length=20
         )
         self.add_item(self.role)
         
         self.time = discord.ui.TextInput(
             label="Summary Time (24h format)",
-            placeholder="HH:MM",
+            placeholder="Example: 09:00",
             default=config.daily_summary_time,
-            required=True
+            required=True,
+            min_length=5,
+            max_length=5
         )
         self.add_item(self.time)
         
         self.enabled = discord.ui.TextInput(
             label="Enabled (true/false)",
+            placeholder="Type 'true' or 'false'",
             default=str(config.daily_summary_enabled).lower(),
-            required=True
+            required=True,
+            max_length=5
         )
         self.add_item(self.enabled)
         
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            # Validate time format
-            datetime.strptime(self.time.value, "%H:%M")
+            channel_id = int(self.channel.value)
+            role_id = int(self.role.value)
             
-            self.config.daily_summary_channel_id = int(self.channel.value)
-            self.config.daily_summary_role_id = int(self.role.value)
+            # Validate time format
+            try:
+                datetime.strptime(self.time.value, "%H:%M")
+            except ValueError:
+                await interaction.response.send_message(
+                    "Invalid time format! Please use HH:MM format (e.g., 09:00)",
+                    ephemeral=True
+                )
+                return
+                
+            # Validate channel
+            channel = interaction.guild.get_channel(channel_id)
+            if not channel:
+                await interaction.response.send_message(
+                    "Channel ID not found! Make sure to use the channel's ID.",
+                    ephemeral=True
+                )
+                return
+                
+            # Validate role
+            role = interaction.guild.get_role(role_id)
+            if not role:
+                await interaction.response.send_message(
+                    "Role ID not found! Make sure to use the role's ID.",
+                    ephemeral=True
+                )
+                return
+                
+            # Validate enabled value
+            if self.enabled.value.lower() not in ['true', 'false']:
+                await interaction.response.send_message(
+                    "Enabled value must be 'true' or 'false'",
+                    ephemeral=True
+                )
+                return
+            
+            self.config.daily_summary_channel_id = channel_id
+            self.config.daily_summary_role_id = role_id
             self.config.daily_summary_time = self.time.value
-            self.config.daily_summary_enabled = self.enabled.value.lower() == "true"
+            self.config.daily_summary_enabled = self.enabled.value.lower() == 'true'
             self.config.save()
-            await interaction.response.send_message("Daily summary settings updated!", ephemeral=True)
+            
+            await interaction.response.send_message(
+                f"Daily summary settings updated!\n"
+                f"Channel: {channel.mention}\n"
+                f"Role: {role.mention}\n"
+                f"Time: {self.time.value}\n"
+                f"Enabled: {self.enabled.value.lower()}",
+                ephemeral=True
+            )
         except ValueError:
             await interaction.response.send_message(
-                "Please enter valid channel/role IDs and time in HH:MM format!",
+                "Please enter valid channel and role IDs! You can get these by:\n"
+                "1. Enable Developer Mode in Discord Settings → App Settings → Advanced\n"
+                "2. Right-click on the channel/role and select 'Copy ID'",
                 ephemeral=True
             )
 
@@ -199,7 +298,7 @@ class CalendarSettings(discord.ui.Modal, title="Calendar Settings"):
         
         self.calendar_id = discord.ui.TextInput(
             label="Google Calendar ID",
-            placeholder="Enter calendar ID",
+            placeholder="Enter calendar ID (looks like an email address)",
             default=config.google_calendar_id,
             required=True
         )
@@ -207,20 +306,39 @@ class CalendarSettings(discord.ui.Modal, title="Calendar Settings"):
         
         self.check_interval = discord.ui.TextInput(
             label="Check Interval (minutes)",
-            placeholder="Enter number of minutes",
+            placeholder="Enter number of minutes (e.g., 5)",
             default=str(config.calendar_check_interval),
-            required=True
+            required=True,
+            max_length=3
         )
         self.add_item(self.check_interval)
         
     async def on_submit(self, interaction: discord.Interaction):
         try:
+            # Validate check interval
+            interval = int(self.check_interval.value)
+            if interval < 1:
+                await interaction.response.send_message(
+                    "Check interval must be at least 1 minute!",
+                    ephemeral=True
+                )
+                return
+                
             self.config.google_calendar_id = self.calendar_id.value
-            self.config.calendar_check_interval = int(self.check_interval.value)
+            self.config.calendar_check_interval = interval
             self.config.save()
-            await interaction.response.send_message("Calendar settings updated!", ephemeral=True)
+            
+            await interaction.response.send_message(
+                f"Calendar settings updated!\n"
+                f"Calendar ID: {self.calendar_id.value}\n"
+                f"Check Interval: {interval} minutes",
+                ephemeral=True
+            )
         except ValueError:
-            await interaction.response.send_message("Please enter a valid number for check interval!", ephemeral=True)
+            await interaction.response.send_message(
+                "Please enter a valid number for check interval!",
+                ephemeral=True
+            )
 
 async def setup(bot):
     await bot.add_cog(Settings(bot))
