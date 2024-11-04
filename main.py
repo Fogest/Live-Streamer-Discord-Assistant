@@ -11,6 +11,7 @@ class CalendarBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
+        intents.members = True
         super().__init__(
             command_prefix="!",
             intents=intents,
@@ -23,6 +24,24 @@ class CalendarBot(commands.Bot):
         await self.load_extension("cogs.calendar_sync")
         await self.load_extension("cogs.event_management")
         await self.load_extension("cogs.settings")
+        await self.load_extension("cogs.role_buttons")
+        await self.load_extension("cogs.message_management")
+        # await self.load_extension("cogs.youtube_features")
+        
+        # Set up persistent views
+        from cogs.role_buttons import RolePersistentView
+        if self.config.daily_summary_role_id:
+            self.add_view(RolePersistentView(
+                self.config.daily_summary_role_id,
+                "Toggle Upcoming Events Notifications"
+            ))
+        if self.config.event_notification_role_id:
+            self.add_view(RolePersistentView(
+                self.config.event_notification_role_id,
+                "Toggle Event Notifications",
+                requires_mod=True
+            ))
+        
         await self.tree.sync()
         
     async def on_ready(self):

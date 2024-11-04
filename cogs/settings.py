@@ -1,4 +1,6 @@
 # cogs/settings.py
+import os
+import sys
 from discord.ext import commands
 import discord
 from discord import app_commands

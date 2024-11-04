@@ -31,3 +31,5 @@ rsa==4.9
 uritemplate==4.1.1
 urllib3==2.2.3
 yarl==1.16.0
+beautifulsoup4==4.12.2
+aiohttp==3.10.10

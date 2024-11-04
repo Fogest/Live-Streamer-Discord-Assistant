@@ -173,16 +173,18 @@ class EventManagement(commands.Cog):
     
     @app_commands.command(
         name="add-game",
-        description="Schedule a new game/event"
+        description="Schedule a new game/event (Mod Only)"
     )
+    @app_commands.default_permissions(manage_messages=True)
     async def add_game(self, interaction: discord.Interaction):
         modal = EventModal(self)
         await interaction.response.send_modal(modal)
     
     @app_commands.command(
         name="add-event",
-        description="Schedule a new game/event"
+        description="Schedule a new game/event (Mod Only)"
     )
+    @app_commands.default_permissions(manage_messages=True)
     async def add_event(self, interaction: discord.Interaction):
         modal = EventModal(self)
         await interaction.response.send_modal(modal)
@@ -192,7 +194,7 @@ class EventManagement(commands.Cog):
         description="Show the next 5 upcoming events"
     )
     async def upcoming_events(self, interaction: discord.Interaction):
-        await interaction.response.defer()  # For longer processing time
+        await interaction.response.defer(ephemeral=True)  # For longer processing time
 
         try:
             creds = await self.get_credentials()
@@ -283,6 +285,7 @@ class EventManagement(commands.Cog):
 
             await interaction.followup.send(
                 embed=embed,
+                ephemeral=True,
                 view=view
             )
 
