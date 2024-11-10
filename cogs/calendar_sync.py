@@ -8,6 +8,49 @@ from typing import List, Optional
 import pytz
 import json
 
+class DailySummaryView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # No timeout since this is persistent
+        
+    @discord.ui.button(
+        label="Toggle Daily Summaries",
+        style=discord.ButtonStyle.secondary,
+        custom_id="toggle_daily_summaries"
+    )
+    async def toggle_summaries(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "This button can only be used in a server.",
+                ephemeral=True
+            )
+            return
+            
+        config = interaction.client.config
+        if not config.daily_summary_role_id:
+            await interaction.response.send_message(
+                "Daily summary role is not configured!",
+                ephemeral=True
+            )
+            return
+            
+        role = interaction.guild.get_role(config.daily_summary_role_id)
+        if not role:
+            await interaction.response.send_message(
+                "Daily summary role not found!",
+                ephemeral=True
+            )
+            return
+            
+        member = interaction.guild.get_member(interaction.user.id)
+        if role in member.roles:
+            await member.remove_roles(role)
+            message = "You will no longer receive daily summaries."
+        else:
+            await member.add_roles(role)
+            message = "You will now receive daily summaries."
+            
+        await interaction.response.send_message(message, ephemeral=True)
+
 class CalendarSync(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -17,6 +60,9 @@ class CalendarSync(commands.Cog):
         self._daily_summary_task = None
         self._daily_summary_stop = asyncio.Event()
         self.start_daily_summary()
+        
+        # Add the persistent view when the cog loads
+        self.bot.add_view(DailySummaryView())
 
     def cog_unload(self):
         self.calendar_check.cancel()
@@ -216,6 +262,8 @@ class CalendarSync(commands.Cog):
             timestamp=datetime.now()
         )
         
+        mention = ""
+        
         if not events:
             embed.description = "No events scheduled for today!"
         else:
@@ -226,12 +274,9 @@ class CalendarSync(commands.Cog):
                     value=f"Starting at <t:{int(start_time.timestamp())}:t>",
                     inline=False
                 )
-                
-        mention = ""
-        if self.config.daily_summary_role_id:
-            mention = f"<@&{self.config.daily_summary_role_id}> "
+            mention = f"<@&{self.config.daily_summary_role_id}> " if self.config.daily_summary_role_id else ""          
             
-        await channel.send(mention, embed=embed)
+        await channel.send(mention, embed=embed, view=DailySummaryView())
         
     @commands.command(name="force-daily-summary")
     @commands.has_permissions(manage_messages=True)
