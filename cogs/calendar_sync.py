@@ -7,6 +7,7 @@ from googleapiclient.discovery import build
 from typing import List, Optional
 import pytz
 import json
+import hashlib
 
 class DailySummaryView(discord.ui.View):
     def __init__(self):
@@ -59,10 +60,31 @@ class CalendarSync(commands.Cog):
         self.calendar_check.start()
         self._daily_summary_task = None
         self._daily_summary_stop = asyncio.Event()
+        self._last_summary_hash = self.get_last_summary_hash()
         self.start_daily_summary()
         
         # Add the persistent view when the cog loads
         self.bot.add_view(DailySummaryView())
+        
+    def get_last_summary_hash(self) -> str:
+        """Generate a hash of the last summary time to prevent duplicates"""
+        est = pytz.timezone('US/Eastern')
+        now = datetime.now(est)
+        configured_time = datetime.strptime(self.config.daily_summary_time, "%H:%M").time()
+        target_time = now.replace(
+            hour=configured_time.hour,
+            minute=configured_time.minute,
+            second=0,
+            microsecond=0
+        )
+        
+        # If we've passed today's time, use tomorrow's date
+        if now.time() > configured_time:
+            target_time += timedelta(days=1)
+            
+        # Create a unique hash for this summary time
+        hash_input = f"{target_time.isoformat()}"
+        return hashlib.md5(hash_input.encode()).hexdigest()
 
     def cog_unload(self):
         self.calendar_check.cancel()
@@ -74,6 +96,7 @@ class CalendarSync(commands.Cog):
             self.stop_daily_summary()
         self._daily_summary_stop.clear()
         self._daily_summary_task = asyncio.create_task(self.daily_summary_loop())
+        self._last_summary_hash = self.get_last_summary_hash()
 
     def stop_daily_summary(self):
         """Stop the daily summary background task"""
@@ -110,6 +133,13 @@ class CalendarSync(commands.Cog):
                 if now.time() > configured_time:
                     target_time += timedelta(days=1)
 
+                # Check if we've already sent this summary
+                current_hash = hashlib.md5(target_time.isoformat().encode()).hexdigest()
+                if current_hash == self._last_summary_hash:
+                    # We've already handled this time slot, wait until next one
+                    target_time += timedelta(days=1)
+                    current_hash = hashlib.md5(target_time.isoformat().encode()).hexdigest()
+
                 wait_seconds = (target_time - now).total_seconds()
 
                 # Wait until either the target time is reached or we're interrupted
@@ -123,6 +153,7 @@ class CalendarSync(commands.Cog):
                 except asyncio.TimeoutError:
                     # If we get here, it's time to send the summary
                     await self.send_daily_summary()
+                    self._last_summary_hash = current_hash
 
             except Exception as e:
                 print(f"Error in daily summary loop: {e}")
@@ -282,6 +313,7 @@ class CalendarSync(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def force_daily_summary(self, ctx):
         await self.send_daily_summary()
+        self._last_summary_hash = self.get_last_summary_hash()
         await ctx.message.add_reaction('✅')
         
 async def setup(bot):
