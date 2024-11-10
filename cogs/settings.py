@@ -277,6 +277,11 @@ class DailySummarySettings(discord.ui.Modal, title="Daily Summary Settings"):
             self.config.daily_summary_enabled = self.enabled.value.lower() == 'true'
             self.config.save()
             
+            # Get the CalendarSync cog and restart the daily summary task
+            calendar_sync = interaction.client.get_cog('CalendarSync')
+            if calendar_sync:
+                calendar_sync.restart_daily_summary()
+            
             await interaction.response.send_message(
                 f"Daily summary settings updated!\n"
                 f"Channel: {channel.mention}\n"

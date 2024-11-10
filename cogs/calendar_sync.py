@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands, tasks
-import asyncio  # Add this import
+import asyncio
 from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -14,12 +14,75 @@ class CalendarSync(commands.Cog):
         self.config = bot.config
         self.last_sync_time = datetime.now(pytz.UTC)
         self.calendar_check.start()
-        self.daily_summary.start()
-        
+        self._daily_summary_task = None
+        self._daily_summary_stop = asyncio.Event()
+        self.start_daily_summary()
+
     def cog_unload(self):
         self.calendar_check.cancel()
-        self.daily_summary.cancel()
-        
+        self.stop_daily_summary()
+
+    def start_daily_summary(self):
+        """Start the daily summary background task"""
+        if self._daily_summary_task is not None:
+            self.stop_daily_summary()
+        self._daily_summary_stop.clear()
+        self._daily_summary_task = asyncio.create_task(self.daily_summary_loop())
+
+    def stop_daily_summary(self):
+        """Stop the daily summary background task"""
+        if self._daily_summary_task is not None:
+            self._daily_summary_stop.set()
+            self._daily_summary_task.cancel()
+            self._daily_summary_task = None
+
+    def restart_daily_summary(self):
+        """Restart the daily summary task (called when settings change)"""
+        self.start_daily_summary()
+
+    async def daily_summary_loop(self):
+        """Background task that handles daily summary posting"""
+        while not self._daily_summary_stop.is_set():
+            try:
+                if not self.config.daily_summary_enabled:
+                    # If disabled, check again in 1 minute
+                    await asyncio.sleep(60)
+                    continue
+
+                # Calculate time until next summary
+                est = pytz.timezone('US/Eastern')
+                now = datetime.now(est)
+                configured_time = datetime.strptime(self.config.daily_summary_time, "%H:%M").time()
+                target_time = now.replace(
+                    hour=configured_time.hour,
+                    minute=configured_time.minute,
+                    second=0,
+                    microsecond=0
+                )
+
+                # If we've passed the time today, schedule for tomorrow
+                if now.time() > configured_time:
+                    target_time += timedelta(days=1)
+
+                wait_seconds = (target_time - now).total_seconds()
+
+                # Wait until either the target time is reached or we're interrupted
+                try:
+                    await asyncio.wait_for(
+                        self._daily_summary_stop.wait(),
+                        timeout=wait_seconds
+                    )
+                    # If we get here, we were interrupted
+                    continue
+                except asyncio.TimeoutError:
+                    # If we get here, it's time to send the summary
+                    await self.send_daily_summary()
+
+            except Exception as e:
+                print(f"Error in daily summary loop: {e}")
+                # Wait a minute before retrying on error
+                await asyncio.sleep(60)
+
     @tasks.loop(minutes=5)
     async def calendar_check(self):
         minutes = self.config.calendar_check_interval
@@ -31,34 +94,6 @@ class CalendarSync(commands.Cog):
                 await self.notify_new_event(event)
         except Exception as e:
             print(f"Error checking calendar: {e}")
-            
-    @tasks.loop(hours=24)
-    async def daily_summary(self):
-        if not self.config.daily_summary_enabled:
-            return
-            
-        try:
-            # Get configured time
-            est = pytz.timezone('US/Eastern')
-            now = datetime.now(est)
-            configured_time = datetime.strptime(self.config.daily_summary_time, "%H:%M").time()
-            target_time = now.replace(
-                hour=configured_time.hour,
-                minute=configured_time.minute,
-                second=0,
-                microsecond=0
-            )
-            
-            # Wait until configured time
-            if now.time() > configured_time:
-                target_time += timedelta(days=1)
-            wait_seconds = (target_time - now).total_seconds()
-            await asyncio.sleep(wait_seconds)
-            
-            await self.send_daily_summary()
-            
-        except Exception as e:
-            print(f"Error in daily summary: {e}")
        
     async def get_credentials(self):
         try:
@@ -96,18 +131,40 @@ class CalendarSync(commands.Cog):
         service = build('calendar', 'v3', credentials=creds)
         
         est = pytz.timezone('US/Eastern')
-        today = datetime.now(est).replace(hour=0, minute=0, second=0, microsecond=0)
-        tomorrow = today + timedelta(days=1)
+        now = datetime.now(est)
+        
+        # Set up the search window
+        today_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        tomorrow_4am = (now + timedelta(days=1)).replace(hour=4, minute=0, second=0, microsecond=0)
+        
+        # If it's between midnight and 4am, adjust the window to look at previous day 8am to today 4am
+        if now.hour < 4:
+            today_8am = (now - timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
+            tomorrow_4am = now.replace(hour=4, minute=0, second=0, microsecond=0)
         
         events_result = service.events().list(
             calendarId=self.config.google_calendar_id,
-            timeMin=today.isoformat(),
-            timeMax=tomorrow.isoformat(),
+            timeMin=today_8am.isoformat(),
+            timeMax=tomorrow_4am.isoformat(),
             singleEvents=True,
             orderBy='startTime'
         ).execute()
         
-        return events_result.get('items', [])
+        # Filter events to only include those starting within our window
+        events = events_result.get('items', [])
+        filtered_events = []
+        
+        for event in events:
+            event_start = datetime.fromisoformat(event['start'].get('dateTime', event['start'].get('date')))
+            # Convert to EST if the datetime is timezone-aware
+            if event_start.tzinfo is not None:
+                event_start = event_start.astimezone(est)
+                
+            # Only include events that start within our window
+            if today_8am <= event_start <= tomorrow_4am:
+                filtered_events.append(event)
+        
+        return filtered_events
         
     async def notify_new_event(self, event: dict):
         if not self.config.event_notification_channel_id:
