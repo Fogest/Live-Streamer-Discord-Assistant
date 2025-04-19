@@ -15,19 +15,19 @@ class CalendarBot(commands.Bot):
         super().__init__(
             command_prefix="!",
             intents=intents,
-            description="A Discord bot for managing events with Google Calendar integration"
+            description="A Discord bot for assisting live streamers with community management and stream notifications."
         )
         self.config = BotConfig.load()
         self.owner_id = int(os.getenv("OWNER_ID", "0"))
         
     async def setup_hook(self):
-        await self.load_extension("cogs.calendar_sync")
-        await self.load_extension("cogs.event_management")
+        # Load Core Cogs
         await self.load_extension("cogs.settings")
         await self.load_extension("cogs.role_buttons")
         await self.load_extension("cogs.message_management")
-        # await self.load_extension("cogs.youtube_features")
-        
+        await self.load_extension("cogs.youtube_monitor") # Load the new monitor cog
+        # await self.load_extension("cogs.youtube_features") # Keep this commented unless needed
+
         # Set up persistent views
         from cogs.role_buttons import RolePersistentView
         if self.config.daily_summary_role_id:

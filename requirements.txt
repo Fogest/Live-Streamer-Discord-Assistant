@@ -11,12 +11,10 @@ google-api-core==2.21.0
 google-api-python-client==2.149.0
 google-auth==2.35.0
 google-auth-httplib2==0.2.0
-google-auth-oauthlib==1.2.1
 googleapis-common-protos==1.65.0
 httplib2==0.22.0
 idna==3.10
 multidict==6.1.0
-oauthlib==3.2.2
 propcache==0.2.0
 proto-plus==1.25.0
 protobuf==5.28.3
@@ -26,7 +24,6 @@ pyparsing==3.2.0
 python-dotenv==1.0.1
 pytz==2024.2
 requests==2.32.3
-requests-oauthlib==2.0.0
 rsa==4.9
 uritemplate==4.1.1
 urllib3==2.2.3
